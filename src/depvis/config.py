@@ -33,12 +33,6 @@ class Settings:
     ascii_tree: bool
     filter_substring: str
 
-    def items(self):
-        """Return ``(name, value)`` pairs in the order of the fields."""
-        return [
-            (item.name, getattr(self, item.name)) for item in fields(self)
-        ]
-
 
 PARAMETER_NAMES = tuple(item.name for item in fields(Settings))
 MODE_FREE_CHECKS = (

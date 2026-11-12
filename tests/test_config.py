@@ -57,12 +57,6 @@ def test_test_mode_config_is_loaded(make_config, repo_file):
     assert settings.filter_substring == "C"
 
 
-def test_items_follow_the_documented_order(make_config):
-    """Settings.items() lists the parameters in the documented order."""
-    settings = load_settings(make_config())
-    assert tuple(dict(settings.items())) == PARAMETER_NAMES
-
-
 def test_parameter_names_are_case_insensitive(config_path):
     """Parameter names may be written in any letter case."""
     config_path.write_text(

@@ -1,6 +1,13 @@
 """Shared fixtures for the depvis test suite."""
 
+import io
+import json
+from http import HTTPStatus
+from urllib.error import HTTPError
+
 import pytest
+
+from depvis.requirements import canonical_name
 
 CONFIG_NAME = "config.ini"
 VALID_VALUES = {
@@ -12,6 +19,67 @@ VALID_VALUES = {
     "ascii_tree": "false",
     "filter_substring": "",
 }
+REQUESTS_REQUIRES_DIST = [
+    "charset-normalizer<4,>=2",
+    "idna<4,>=2.5",
+    "urllib3<3,>=1.21.1",
+    "certifi>=2017.4.17",
+    'PySocks!=1.5.7,>=1.5.6; extra == "socks"',
+    'chardet<6,>=3.0.2; extra == "use-chardet-on-py3"',
+]
+
+
+class FakeRepository:
+    """Answers ``urlopen`` calls from prepared pages, not the network.
+
+    An address without a page answers HTTP 404, as PyPI does for unknown
+    packages and versions. A page holds either the bytes of the answer
+    or an exception that ``urlopen`` should raise.
+    """
+
+    url = VALID_VALUES["repository"]
+
+    def __init__(self):
+        """Start with requests 2.32.3, the package of the default config."""
+        self.pages = {}
+        self.requests = []
+        self.timeouts = []
+        self.add_release("requests", "2.32.3", REQUESTS_REQUIRES_DIST)
+
+    def add_page(self, path, answer):
+        """Serve ``answer`` at the address ``{url}/{path}``."""
+        self.pages[f"{self.url}/{path}"] = answer
+
+    def add_release(self, name, version, requires_dist):
+        """Serve a release that is also the latest one of the package."""
+        info = {
+            "name": name,
+            "version": version,
+            "requires_dist": requires_dist,
+        }
+        body = json.dumps({"info": info}).encode()
+        self.add_page(f"{canonical_name(name)}/{version}/json", body)
+        self.add_page(f"{canonical_name(name)}/json", body)
+
+    def open(self, request, timeout):
+        """Imitate ``urlopen``: return the page or raise like urllib."""
+        self.requests.append(request)
+        self.timeouts.append(timeout)
+        answer = self.pages.get(request.full_url)
+        if answer is None:
+            raise HTTPError(
+                request.full_url, HTTPStatus.NOT_FOUND, "Not Found", None, None
+            )
+        if isinstance(answer, Exception):
+            raise answer
+        return io.BytesIO(answer)
+
+
+def refuse_network(request, timeout):
+    """Stand in for ``urlopen`` and refuse to open anything."""
+    raise AssertionError(
+        f"network access in tests: {request.full_url} (timeout {timeout})"
+    )
 
 
 def render_config(values):
@@ -25,6 +93,20 @@ def render_config(values):
 def work_in_tmp_path(tmp_path, monkeypatch):
     """Run every test inside its own temporary working directory."""
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def block_network(monkeypatch):
+    """Make any real network access from the tests fail loudly."""
+    monkeypatch.setattr("depvis.repository.urlopen", refuse_network)
+
+
+@pytest.fixture
+def fake_repository(monkeypatch):
+    """Serve repository answers from a FakeRepository and return it."""
+    repository = FakeRepository()
+    monkeypatch.setattr("depvis.repository.urlopen", repository.open)
+    return repository
 
 
 @pytest.fixture

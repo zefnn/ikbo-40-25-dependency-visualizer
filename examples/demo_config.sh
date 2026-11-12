@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Демонстрация Этапа 1: вывод параметров и ошибки в конфигурации.
+# Демонстрация Этапа 1: обработка ошибок в файле конфигурации.
 # Запуск из любого каталога: ./examples/demo_config.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -17,10 +17,6 @@ run_case() {
     echo "[код завершения: $?]"
     echo
 }
-
-echo "===== Корректные конфигурации ====="
-run_case config.ini
-run_case examples/config_test_mode.ini
 
 echo "===== Ошибки чтения файла ====="
 run_case examples/no_such_config.ini

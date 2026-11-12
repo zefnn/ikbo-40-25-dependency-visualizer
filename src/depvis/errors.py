@@ -1,8 +1,20 @@
-"""Exceptions raised while reading and checking the configuration."""
+"""Exceptions raised by the dependency graph visualizer."""
 
 
 class ValidationError(Exception):
     """Raised by a parameter check when the value cannot be used."""
+
+
+class RequirementError(Exception):
+    """Raised when a dependency string is not valid PEP 508."""
+
+
+class RepositoryError(Exception):
+    """Raised when the package repository cannot give the needed data."""
+
+
+class PackageNotFoundError(RepositoryError):
+    """Raised when the repository has no such package or version."""
 
 
 class ConfigError(Exception):
