@@ -255,6 +255,28 @@ def test_test_mode_rejects_pip_package_name(make_config, repo_file):
     ]
 
 
+def test_filter_matching_the_package_is_reported(make_config):
+    """A filter that removes the analysed package itself is an error."""
+    assert load_errors(make_config(filter_substring="REQ")) == [
+        "filter_substring: 'REQ' matches the analysed package "
+        "'requests' itself, so nothing would be left to analyse"
+    ]
+
+
+def test_filter_matching_a_test_package_is_reported(make_config, repo_file):
+    """The check also works for test package names, case-insensitively."""
+    path = make_config(
+        package_name="A",
+        test_mode="true",
+        repository=repo_file,
+        filter_substring="a",
+    )
+    assert load_errors(path) == [
+        "filter_substring: 'a' matches the analysed package "
+        "'A' itself, so nothing would be left to analyse"
+    ]
+
+
 def test_config_error_text_lists_all_problems():
     """The text of ConfigError names the file and every problem."""
     error = ConfigError("a.ini", ["first", "second"])

@@ -1,0 +1,10 @@
+# Для фильтра "test": TEST и TESTLIB не учитываются,
+# а E и F нужны только им, поэтому тоже не попадают в граф.
+A: B TEST C
+B: TESTLIB D
+C: D
+TEST: E
+TESTLIB: F
+D:
+E:
+F:

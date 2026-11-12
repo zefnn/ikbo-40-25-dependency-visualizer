@@ -6,6 +6,7 @@ from depvis.errors import RequirementError
 from depvis.requirements import (
     Requirement,
     canonical_name,
+    name_matches,
     parse_requirement,
 )
 
@@ -107,3 +108,18 @@ def test_canonical_name(name, key):
 def test_requirement_key_is_the_canonical_name():
     """The key of a requirement is its normalized name."""
     assert Requirement("Typing_Extensions").key == "typing-extensions"
+
+
+@pytest.mark.parametrize(
+    "name, substring, expected",
+    [
+        ("Jinja2", "jinja", True),
+        ("zope.interface", "Zope_Inter", True),
+        ("TESTLIB", "test", True),
+        ("idna", "x", False),
+        ("requests", "", False),
+    ],
+)
+def test_name_matches(name, substring, expected):
+    """Substrings are compared without case, separators are equal."""
+    assert name_matches(name, substring) is expected

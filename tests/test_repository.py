@@ -1,5 +1,6 @@
 """Unit tests for downloading release data in depvis.repository."""
 
+import gzip
 import ssl
 from http import HTTPStatus
 from http.client import IncompleteRead
@@ -9,21 +10,27 @@ import pytest
 
 from depvis.errors import PackageNotFoundError, RepositoryError
 from depvis.repository import (
+    DOWNLOAD_ATTEMPTS,
+    GZIP_ENCODING,
     REQUEST_TIMEOUT,
     USER_AGENT,
-    fetch_requires_dist,
+    Release,
+    fetch_release,
     release_url,
 )
 
 PYPI = "https://pypi.org/pypi"
 DEMO_URL = f"{PYPI}/demo/1.0/json"
+DEMO_BODY = (
+    b'{"info": {"name": "demo", "version": "1.0", "requires_dist": []}}'
+)
 
 
 def download_error(fake_repository, answer):
     """Serve ``answer`` for demo 1.0 and return the error it causes."""
     fake_repository.add_page("demo/1.0/json", answer)
     with pytest.raises(RepositoryError) as caught:
-        fetch_requires_dist(fake_repository.url, "demo", "1.0")
+        fetch_release(fake_repository.url, "demo", "1.0")
     return str(caught.value)
 
 
@@ -45,34 +52,73 @@ def test_release_url(repository, name, version, url):
     assert release_url(repository, name, version) == url
 
 
-def test_requires_dist_strings_are_returned(fake_repository):
-    """The Requires-Dist strings of the release are returned as is."""
+def test_release_is_read_from_the_versioned_page(fake_repository):
+    """Name, version and Requires-Dist of the release are returned."""
     fake_repository.add_release("demo", "1.0", ["idna", "certifi>=2017"])
-    assert fetch_requires_dist(fake_repository.url, "demo", "1.0") == [
-        "idna",
-        "certifi>=2017",
-    ]
+    assert fetch_release(fake_repository.url, "demo", "1.0") == Release(
+        "demo", "1.0", ("idna", "certifi>=2017")
+    )
+
+
+def test_latest_release_is_read_without_version(fake_repository):
+    """Without a version the latest release of the package is used."""
+    fake_repository.add_release("demo", "1.0", ["idna"])
+    fake_repository.add_release("demo", "2.0", ["zipp"])
+    assert fetch_release(fake_repository.url, "demo") == Release(
+        "demo", "2.0", ("zipp",)
+    )
+    assert fake_repository.requested_urls() == [f"{PYPI}/demo/json"]
+
+
+def test_project_name_comes_from_the_repository(fake_repository):
+    """The project name is spelled as the repository spells it."""
+    fake_repository.add_release("Flask", "3.0.3", [])
+    release = fetch_release(fake_repository.url, "flask", "3.0.3")
+    assert release.name == "Flask"
 
 
 def test_null_requires_dist_means_no_dependencies(fake_repository):
     """PyPI gives null for a release without dependencies."""
-    fake_repository.add_release("certifi", "2024.8.30", None)
-    url = fake_repository.url
-    assert fetch_requires_dist(url, "certifi", "2024.8.30") == []
+    release = fetch_release(fake_repository.url, "certifi", "2024.8.30")
+    assert not release.requires_dist
 
 
-def test_request_names_the_client_and_has_a_timeout(fake_repository):
-    """Requests carry the User-Agent header and the timeout."""
-    fetch_requires_dist(fake_repository.url, "requests", "2.32.3")
+def test_request_headers_and_timeout(fake_repository):
+    """Requests name the client, accept gzip and have a timeout."""
+    fetch_release(fake_repository.url, "requests", "2.32.3")
     (request,) = fake_repository.requests
     assert request.get_header("User-agent") == USER_AGENT
+    assert request.get_header("Accept-encoding") == GZIP_ENCODING
     assert fake_repository.timeouts == [REQUEST_TIMEOUT]
+
+
+def test_gzip_answer_is_unpacked(fake_repository):
+    """An answer compressed with gzip is decompressed before parsing."""
+    fake_repository.add_page(
+        "demo/1.0/json",
+        gzip.compress(DEMO_BODY),
+        headers={"Content-Encoding": GZIP_ENCODING},
+    )
+    assert fetch_release(fake_repository.url, "demo", "1.0") == Release(
+        "demo", "1.0", ()
+    )
+
+
+def test_damaged_gzip_answer_is_reported(fake_repository):
+    """A broken gzip body is reported instead of crashing."""
+    fake_repository.add_page(
+        "demo/1.0/json",
+        b"not gzip at all",
+        headers={"Content-Encoding": GZIP_ENCODING},
+    )
+    with pytest.raises(RepositoryError, match="gzip answer is damaged"):
+        fetch_release(fake_repository.url, "demo", "1.0")
 
 
 def test_missing_version_names_the_latest_one(fake_repository):
     """For a missing version the latest version is suggested."""
     with pytest.raises(PackageNotFoundError) as caught:
-        fetch_requires_dist(fake_repository.url, "requests", "9.9.9")
+        fetch_release(fake_repository.url, "requests", "9.9.9")
     assert str(caught.value) == (
         f"package 'requests' has no version '9.9.9' in {PYPI} "
         "(latest version: 2.32.3)"
@@ -83,7 +129,7 @@ def test_missing_version_without_latest_information(fake_repository):
     """Without info.version in the answer no suggestion is made."""
     fake_repository.add_page("odd/json", b'{"releases": {}}')
     with pytest.raises(PackageNotFoundError) as caught:
-        fetch_requires_dist(fake_repository.url, "odd", "1.0")
+        fetch_release(fake_repository.url, "odd", "1.0")
     assert str(caught.value) == (
         f"package 'odd' has no version '1.0' in {PYPI}"
     )
@@ -92,8 +138,16 @@ def test_missing_version_without_latest_information(fake_repository):
 def test_missing_package_is_reported(fake_repository):
     """A package unknown to the repository is reported as such."""
     with pytest.raises(PackageNotFoundError) as caught:
-        fetch_requires_dist(fake_repository.url, "nothing", "1.0")
+        fetch_release(fake_repository.url, "nothing", "1.0")
     assert str(caught.value) == f"package 'nothing' not found in {PYPI}"
+
+
+def test_missing_latest_release_needs_one_request(fake_repository):
+    """Without a version a 404 already means the package is unknown."""
+    with pytest.raises(PackageNotFoundError) as caught:
+        fetch_release(fake_repository.url, "nothing")
+    assert str(caught.value) == f"package 'nothing' not found in {PYPI}"
+    assert fake_repository.requested_urls() == [f"{PYPI}/nothing/json"]
 
 
 def test_http_error_is_reported(fake_repository):
@@ -110,12 +164,13 @@ def test_http_error_is_reported(fake_repository):
     )
 
 
-def test_unknown_host_is_reported(fake_repository):
-    """A host that cannot be resolved is reported with the reason."""
+def test_unknown_host_is_reported_after_retries(fake_repository):
+    """A host that cannot be resolved is tried again, then reported."""
     error = URLError("nodename nor servname provided")
     assert download_error(fake_repository, error) == (
         f"cannot download {DEMO_URL}: nodename nor servname provided"
     )
+    assert fake_repository.timeouts == [REQUEST_TIMEOUT] * DOWNLOAD_ATTEMPTS
 
 
 @pytest.mark.parametrize(
@@ -128,12 +183,24 @@ def test_timeout_is_reported(fake_repository, error):
     )
 
 
-def test_certificate_problem_gets_a_hint(fake_repository):
+def test_network_failure_is_retried(fake_repository):
+    """A temporary failure is followed by another attempt."""
+    fake_repository.add_page(
+        "demo/1.0/json", TimeoutError("timed out"), DEMO_BODY
+    )
+    assert fetch_release(fake_repository.url, "demo", "1.0") == Release(
+        "demo", "1.0", ()
+    )
+    assert fake_repository.requested_urls() == [DEMO_URL, DEMO_URL]
+
+
+def test_certificate_problem_gets_a_hint_and_no_retry(fake_repository):
     """An HTTPS certificate error explains how to fix Python on macOS."""
     reason = ssl.SSLCertVerificationError("certificate verify failed")
     message = download_error(fake_repository, URLError(reason))
     assert message.startswith(f"cannot download {DEMO_URL}: ")
     assert "Install Certificates.command" in message
+    assert fake_repository.requested_urls() == [DEMO_URL]
 
 
 def test_broken_transfer_is_reported(fake_repository):

@@ -1,0 +1,8 @@
+# Обход по уровням: BFS даёт A B C D E F G (DFS дал бы A B D G E C F).
+A: B C
+B: D E
+C: F
+D: G
+E:
+F:
+G:

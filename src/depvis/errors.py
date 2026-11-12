@@ -17,6 +17,23 @@ class PackageNotFoundError(RepositoryError):
     """Raised when the repository has no such package or version."""
 
 
+class NetworkError(RepositoryError):
+    """Raised when the repository could not be reached at all."""
+
+
+class RepositoryFormatError(RepositoryError):
+    """Raised when a test repository file breaks the format rules.
+
+    ``messages`` holds one line per problem, each with its line number.
+    """
+
+    def __init__(self, path, messages):
+        """Remember the file and the list of problems found in it."""
+        self.path = path
+        self.messages = list(messages)
+        super().__init__(f"{path}: " + "; ".join(self.messages))
+
+
 class ConfigError(Exception):
     """Raised when the configuration file cannot be used.
 

@@ -9,6 +9,7 @@ import configparser
 from dataclasses import dataclass, fields
 
 from depvis.errors import ConfigError, ValidationError
+from depvis.requirements import name_matches
 from depvis.validation import (
     check_filter,
     check_output_image,
@@ -142,9 +143,21 @@ def build_settings(raw_values, path):
             values[name] = run_check(
                 problems, name, check, raw_values[name], test_mode
             )
+    check_filter_against_package(values, problems)
     if problems:
         raise ConfigError(path, describe_problems(problems))
     return Settings(**values)
+
+
+def check_filter_against_package(values, problems):
+    """Report a filter that would leave out the analysed package itself."""
+    name = values.get("package_name")
+    substring = values.get("filter_substring")
+    if name and name_matches(name, substring):
+        problems["filter_substring"] = (
+            f"{substring!r} matches the analysed package {name!r} itself, "
+            "so nothing would be left to analyse"
+        )
 
 
 def run_check(problems, name, check, *arguments):

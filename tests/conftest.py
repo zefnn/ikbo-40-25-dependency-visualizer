@@ -27,28 +27,46 @@ REQUESTS_REQUIRES_DIST = [
     'PySocks!=1.5.7,>=1.5.6; extra == "socks"',
     'chardet<6,>=3.0.2; extra == "use-chardet-on-py3"',
 ]
+REQUESTS_DEPENDENCIES = [
+    ("charset-normalizer", "3.4.0"),
+    ("idna", "3.10"),
+    ("urllib3", "2.2.3"),
+    ("certifi", "2024.8.30"),
+]
+
+
+class FakeAnswer(io.BytesIO):
+    """An answer of the fake repository: the body and HTTP headers."""
+
+    def __init__(self, body, headers):
+        """Keep the body as a readable stream and the headers as a dict."""
+        super().__init__(body)
+        self.headers = headers
 
 
 class FakeRepository:
     """Answers ``urlopen`` calls from prepared pages, not the network.
 
     An address without a page answers HTTP 404, as PyPI does for unknown
-    packages and versions. A page holds either the bytes of the answer
+    packages and versions. A page holds answers given one after another
+    (the last one repeats); an answer is either the bytes of the body
     or an exception that ``urlopen`` should raise.
     """
 
     url = VALID_VALUES["repository"]
 
     def __init__(self):
-        """Start with requests 2.32.3, the package of the default config."""
+        """Start with requests 2.32.3 and its four dependencies."""
         self.pages = {}
         self.requests = []
         self.timeouts = []
         self.add_release("requests", "2.32.3", REQUESTS_REQUIRES_DIST)
+        for name, version in REQUESTS_DEPENDENCIES:
+            self.add_release(name, version, None)
 
-    def add_page(self, path, answer):
-        """Serve ``answer`` at the address ``{url}/{path}``."""
-        self.pages[f"{self.url}/{path}"] = answer
+    def add_page(self, path, *answers, headers=None):
+        """Serve ``answers`` one by one at the address ``{url}/{path}``."""
+        self.pages[f"{self.url}/{path}"] = (list(answers), headers or {})
 
     def add_release(self, name, version, requires_dist):
         """Serve a release that is also the latest one of the package."""
@@ -61,18 +79,24 @@ class FakeRepository:
         self.add_page(f"{canonical_name(name)}/{version}/json", body)
         self.add_page(f"{canonical_name(name)}/json", body)
 
+    def requested_urls(self):
+        """Return the addresses requested so far, in order."""
+        return [request.full_url for request in self.requests]
+
     def open(self, request, timeout):
         """Imitate ``urlopen``: return the page or raise like urllib."""
         self.requests.append(request)
         self.timeouts.append(timeout)
-        answer = self.pages.get(request.full_url)
-        if answer is None:
+        page = self.pages.get(request.full_url)
+        if page is None:
             raise HTTPError(
                 request.full_url, HTTPStatus.NOT_FOUND, "Not Found", None, None
             )
+        answers, headers = page
+        answer = answers.pop(0) if answers[1:] else answers[0]
         if isinstance(answer, Exception):
             raise answer
-        return io.BytesIO(answer)
+        return FakeAnswer(answer, headers)
 
 
 def refuse_network(request, timeout):

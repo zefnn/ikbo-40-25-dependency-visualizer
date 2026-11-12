@@ -9,7 +9,8 @@ duplicate_section wrong_section unknown_parameter missing_parameters
 empty_values"
 PARAMETER_ERRORS="package_name test_package_name repository_url
 test_repository_missing test_repository_directory test_mode version
-output_image output_directory ascii_tree filter_substring"
+output_image output_directory ascii_tree filter_substring
+filter_matches_package"
 
 run_case() {
     echo "\$ ./run.sh -c $1"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Демонстрация Этапа 2: прямые зависимости пакетов из PyPI.
+# Демонстрация Этапа 2: данные о зависимостях пакетов из PyPI
+# (с Этапа 3 для каждого пакета выводится полный граф).
 # Нужен доступ в интернет. Запуск: ./examples/demo_dependencies.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -15,7 +16,7 @@ run_case() {
     echo
 }
 
-echo "===== Прямые зависимости ====="
+echo "===== Зависимости пакетов ====="
 for config in $PACKAGES; do
     run_case "$config"
 done
@@ -24,6 +25,3 @@ echo "===== Ошибки репозитория ====="
 for name in $REPOSITORY_ERRORS; do
     run_case "examples/repository_errors/$name.ini"
 done
-
-echo "===== Тестовый режим (появится на Этапе 3) ====="
-run_case examples/config_test_mode.ini

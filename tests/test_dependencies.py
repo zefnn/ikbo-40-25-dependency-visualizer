@@ -1,29 +1,9 @@
-"""Unit tests for collecting direct dependencies in depvis.dependencies."""
+"""Unit tests for direct dependencies in depvis.dependencies."""
 
-from depvis.dependencies import (
-    DirectDependencies,
-    classify,
-    get_direct_dependencies,
-)
+from depvis.dependencies import PackageInfo, RepositorySource, classify
 from depvis.requirements import Requirement
 
-
-def names(requirements):
-    """Return the names of the given requirements as a list."""
-    return [item.name for item in requirements]
-
-
-def test_requests_dependencies_are_classified(fake_repository):
-    """Dependencies of an extra are optional, the others are required."""
-    result = get_direct_dependencies(fake_repository.url, "requests", "2.32.3")
-    assert names(result.required) == [
-        "charset-normalizer",
-        "idna",
-        "urllib3",
-        "certifi",
-    ]
-    assert names(result.optional) == ["PySocks", "chardet"]
-    assert not result.invalid
+PYPI = "https://pypi.org/pypi"
 
 
 def test_platform_dependencies_stay_required():
@@ -49,10 +29,38 @@ def test_unparsable_strings_are_collected():
     )
 
 
-def test_release_without_dependencies(fake_repository):
-    """A release without Requires-Dist gives three empty groups."""
-    fake_repository.add_release("certifi", "2024.8.30", None)
-    result = get_direct_dependencies(
-        fake_repository.url, "certifi", "2024.8.30"
+def test_root_is_described_in_the_configured_version(fake_repository):
+    """The analysed package is read in its version, extras are left out."""
+    source = RepositorySource(fake_repository.url, "requests", "2.32.3")
+    assert source.describe("requests") == PackageInfo(
+        "requests",
+        "2.32.3",
+        ("charset-normalizer", "idna", "urllib3", "certifi"),
     )
-    assert result == DirectDependencies((), (), ())
+    assert fake_repository.requested_urls() == [
+        f"{PYPI}/requests/2.32.3/json"
+    ]
+
+
+def test_other_packages_are_described_in_latest_version(fake_repository):
+    """Dependencies are read in the latest version of the repository."""
+    fake_repository.add_release("demo", "1.0", ["idna"])
+    fake_repository.add_release("demo", "2.0", ["zipp"])
+    source = RepositorySource(fake_repository.url, "requests", "2.32.3")
+    assert source.describe("demo") == PackageInfo("demo", "2.0", ("zipp",))
+    assert fake_repository.requested_urls() == [f"{PYPI}/demo/json"]
+
+
+def test_unparsable_dependencies_become_problems(fake_repository):
+    """Broken dependency strings are reported with the package."""
+    fake_repository.add_release("odd", "1.0", ["idna", "!!!"])
+    source = RepositorySource(fake_repository.url, "odd", "1.0")
+    assert source.describe("odd") == PackageInfo(
+        "odd",
+        "1.0",
+        ("idna",),
+        (
+            "odd 1.0: skipped dependency '!!!': "
+            "not a PEP 508 dependency string",
+        ),
+    )

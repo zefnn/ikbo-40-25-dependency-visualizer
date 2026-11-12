@@ -57,6 +57,13 @@ def canonical_name(name):
     return NAME_SEPARATORS.sub("-", name).lower()
 
 
+def name_matches(name, substring):
+    """Tell whether ``name`` contains ``substring`` (PEP 503 compared)."""
+    if not substring:
+        return False
+    return canonical_name(substring) in canonical_name(name)
+
+
 def parse_requirement(text):
     """Split a PEP 508 dependency string into a ``Requirement``."""
     match = REQUIREMENT_PATTERN.fullmatch(text.strip())
