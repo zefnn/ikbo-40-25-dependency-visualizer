@@ -16,7 +16,7 @@ def load_errors(path):
 
 
 def test_parameter_names_match_the_task():
-    """All seven parameters from the task are configurable."""
+    """The seven parameters of Stage 1 and the Stage 4 mode exist."""
     assert PARAMETER_NAMES == (
         "package_name",
         "repository",
@@ -25,6 +25,7 @@ def test_parameter_names_match_the_task():
         "output_image",
         "ascii_tree",
         "filter_substring",
+        "reverse_dependencies",
     )
 
 
@@ -38,7 +39,35 @@ def test_valid_config_is_loaded(make_config):
         output_image="graph.png",
         ascii_tree=False,
         filter_substring="",
+        reverse_dependencies=False,
     )
+
+
+def test_reverse_mode_is_loaded_in_test_mode(make_config, repo_file):
+    """Reverse dependencies are switched on for a test repository."""
+    path = make_config(
+        package_name="B",
+        test_mode="true",
+        repository=repo_file,
+        reverse_dependencies="yes",
+    )
+    assert load_settings(path).reverse_dependencies is True
+
+
+def test_reverse_mode_needs_test_mode(make_config):
+    """PyPI cannot answer who depends on a package, so it is an error."""
+    assert load_errors(make_config(reverse_dependencies="true")) == [
+        "reverse_dependencies: only test_mode = true is supported "
+        "(PyPI has no list of dependents)"
+    ]
+
+
+def test_reverse_mode_must_be_a_boolean(make_config):
+    """The reverse mode switch accepts only boolean words."""
+    assert load_errors(make_config(reverse_dependencies="backwards")) == [
+        "reverse_dependencies: 'backwards' is not a boolean "
+        "(use true/false, yes/no, on/off, 1/0)"
+    ]
 
 
 def test_test_mode_config_is_loaded(make_config, repo_file):
@@ -67,7 +96,8 @@ def test_parameter_names_are_case_insensitive(config_path):
         "VERSION = 2.32.3\n"
         "output_image = graph.png\n"
         "ASCII_TREE = no\n"
-        "filter_substring =\n",
+        "filter_substring =\n"
+        "Reverse_Dependencies = off\n",
         encoding="utf-8",
     )
     assert load_settings(str(config_path)).package_name == "requests"

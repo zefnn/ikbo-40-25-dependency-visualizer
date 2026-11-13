@@ -46,6 +46,42 @@ class FileRepository:
         )
 
 
+class ReverseFileRepository:
+    """A test repository read backwards: who depends on a package.
+
+    For a package it returns, as its "dependencies", the packages that
+    depend on it directly. The breadth-first search that builds the
+    dependency graph therefore walks the reverse dependencies as is.
+    """
+
+    def __init__(self, repository):
+        """Build the reverse mapping of a loaded ``FileRepository``."""
+        self.path = repository.path
+        self.dependents = invert(repository.packages)
+
+    def describe(self, name):
+        """Return the packages that depend on ``name`` directly."""
+        if name not in self.dependents:
+            raise PackageNotFoundError(
+                f"package {name!r} is not mentioned in {self.path}"
+            )
+        return PackageInfo(
+            name=name, version="", dependencies=self.dependents[name]
+        )
+
+
+def invert(packages):
+    """Map every package in the file to the packages depending on it.
+
+    Packages that are only mentioned as dependencies are included too.
+    """
+    dependents = {name: [] for name in packages}
+    for name, dependencies in packages.items():
+        for dependency in dependencies:
+            dependents.setdefault(dependency, []).append(name)
+    return {name: tuple(users) for name, users in dependents.items()}
+
+
 def load_file_repository(path):
     """Read and check a test repository file."""
     try:

@@ -1,6 +1,6 @@
 """Unit tests for the text report in depvis.report."""
 
-from depvis.file_repository import FileRepository
+from depvis.file_repository import FileRepository, ReverseFileRepository
 from depvis.graph import build_graph
 from depvis.report import (
     OUTPUT_WIDTH,
@@ -51,4 +51,45 @@ def test_report_lists_packages_filter_and_cycles():
         "Skipped by filter 'x': X\n"
         "Cycles:\n"
         "  A -> B -> A"
+    )
+
+
+def make_reverse_graph(root, packages):
+    """Build the reverse dependency graph of ``root`` from a mapping."""
+    source = ReverseFileRepository(FileRepository("repo.txt", packages))
+    return build_graph(root, source, reverse=True)
+
+
+def test_reverse_report_lists_the_dependents():
+    """Reverse edges use '<-' and every dependent is named at the end."""
+    packages = {"A": ("B", "C"), "B": ("D",), "C": ("D",), "D": ()}
+    graph = make_reverse_graph("D", packages)
+    assert format_graph(graph, " (test repository repo.txt)") == (
+        "Reverse dependencies of D (test repository repo.txt):\n"
+        "  D <- B, C\n"
+        "  B <- A\n"
+        "  C <- A\n"
+        "  A\n"
+        "Packages that depend on D: B, C, A"
+    )
+
+
+def test_reverse_report_without_dependents():
+    """A package nobody depends on is reported as such."""
+    graph = make_reverse_graph("A", {"A": ("B",), "B": ()})
+    assert format_graph(graph) == (
+        "Reverse dependencies of A:\n  A\nNo packages depend on A"
+    )
+
+
+def test_reverse_report_shows_cycles_with_left_arrows():
+    """A cycle of reverse dependencies is written with '<-' as well."""
+    graph = make_reverse_graph("A", {"A": ("B",), "B": ("A",)})
+    assert format_graph(graph) == (
+        "Reverse dependencies of A:\n"
+        "  A <- B\n"
+        "  B <- A\n"
+        "Packages that depend on A: B\n"
+        "Cycles:\n"
+        "  A <- B <- A"
     )

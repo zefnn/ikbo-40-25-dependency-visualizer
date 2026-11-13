@@ -10,7 +10,7 @@ empty_values"
 PARAMETER_ERRORS="package_name test_package_name repository_url
 test_repository_missing test_repository_directory test_mode version
 output_image output_directory ascii_tree filter_substring
-filter_matches_package"
+filter_matches_package reverse_dependencies reverse_without_test_mode"
 
 run_case() {
     echo "\$ ./run.sh -c $1"

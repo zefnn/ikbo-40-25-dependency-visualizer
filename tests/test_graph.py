@@ -4,7 +4,11 @@ import pytest
 
 from depvis.dependencies import RepositorySource
 from depvis.errors import PackageNotFoundError
-from depvis.file_repository import FileRepository, parse_lines
+from depvis.file_repository import (
+    FileRepository,
+    ReverseFileRepository,
+    parse_lines,
+)
 from depvis.graph import build_graph, find_cycles
 
 
@@ -159,3 +163,51 @@ def test_repository_graph_uses_names_from_the_repository(fake_repository):
     ]
     assert edges(graph, "werkzeug") == ["MarkupSafe"]
     assert edges(graph, "jinja2") == ["MarkupSafe"]
+
+
+def build_reverse(root, text, filter_substring=""):
+    """Build the reverse dependency graph of ``root`` from file text."""
+    source = ReverseFileRepository(CountingRepository(text))
+    return build_graph(root, source, filter_substring, reverse=True)
+
+
+def test_reverse_dependencies_are_found_breadth_first():
+    """Direct dependents come first, then the packages that need them."""
+    graph = build_reverse("D", "A: B C\nB: D\nC: D\nD:\n")
+    assert graph.reverse
+    assert labels(graph, graph.nodes) == ["D", "B", "C", "A"]
+    assert edges(graph, "d") == ["B", "C"]
+    assert edges(graph, "b") == ["A"]
+    assert not edges(graph, "a")
+
+
+def test_reverse_chain_is_followed_to_the_top():
+    """Indirect dependents at any depth are collected."""
+    graph = build_reverse("D", "A: B\nB: C\nC: D\nD:\n")
+    assert labels(graph, graph.nodes) == ["D", "C", "B", "A"]
+
+
+def test_package_without_dependents_stays_alone():
+    """Nothing depends on the top package of a graph."""
+    graph = build_reverse("A", "A: B C\nB: D\nC: D\nD:\n")
+    assert labels(graph, graph.nodes) == ["A"]
+
+
+def test_reverse_search_handles_cycles():
+    """A cycle is walked once and reported in the reversed direction."""
+    graph = build_reverse("D", "A: B\nB: C\nC: A D\nD:\n")
+    assert labels(graph, graph.nodes) == ["D", "C", "B", "A"]
+    assert cycle_names(graph) == [["C", "B", "A", "C"]]
+
+
+def test_reverse_search_uses_the_filter():
+    """A filtered dependent is skipped, others are still reached."""
+    graph = build_reverse("D", "A: B C\nB: D\nC: D\nD:\n", "b")
+    assert labels(graph, graph.nodes) == ["D", "C", "A"]
+    assert list(graph.skipped.values()) == ["B"]
+
+
+def test_reverse_search_of_unknown_package_fails():
+    """A package the file never mentions has no reverse dependencies."""
+    with pytest.raises(PackageNotFoundError):
+        build_reverse("Z", "A: B\nB:\n")

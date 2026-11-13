@@ -1,4 +1,8 @@
-"""Text report of the dependency graph for the terminal."""
+"""Text report of the dependency graph for the terminal.
+
+A dependency graph is shown with '->' ("depends on"), a graph of reverse
+dependencies (Stage 4) with '<-' ("is needed by").
+"""
 
 import textwrap
 
@@ -7,6 +11,8 @@ from depvis.graph import find_cycles
 OUTPUT_WIDTH = 79
 ITEM_INDENT = "  "
 WRAP_INDENT = "      "
+FORWARD_ARROW = " -> "
+REVERSE_ARROW = " <- "
 
 
 def wrap(text, first_indent="", next_indent=ITEM_INDENT):
@@ -19,6 +25,11 @@ def wrap(text, first_indent="", next_indent=ITEM_INDENT):
         break_long_words=False,
         break_on_hyphens=False,
     )
+
+
+def arrow(graph):
+    """Return the edge arrow: '->' or, for reverse dependencies, '<-'."""
+    return REVERSE_ARROW if graph.reverse else FORWARD_ARROW
 
 
 def node_title(graph, key):
@@ -42,20 +53,34 @@ def format_node(graph, key):
     text = node_title(graph, key)
     targets = graph.nodes[key].dependencies
     if targets:
-        text += " -> " + ", ".join(names(graph, targets))
+        text += arrow(graph) + ", ".join(names(graph, targets))
     return wrap(text, ITEM_INDENT, WRAP_INDENT)
 
 
 def format_cycle(graph, cycle):
-    """Return a cycle as 'A -> B -> A'."""
-    return wrap(" -> ".join(names(graph, cycle)), ITEM_INDENT, WRAP_INDENT)
+    """Return a cycle as 'A -> B -> A' ('A <- B <- A' when reversed)."""
+    text = arrow(graph).join(names(graph, cycle))
+    return wrap(text, ITEM_INDENT, WRAP_INDENT)
+
+
+def format_dependents(graph):
+    """Name every package that depends on the analysed one (Stage 4)."""
+    title = graph.nodes[graph.root].label
+    dependents = [key for key in graph.nodes if key != graph.root]
+    if not dependents:
+        return f"No packages depend on {title}"
+    listed = ", ".join(names(graph, dependents))
+    return wrap(f"Packages that depend on {title}: {listed}")
 
 
 def format_graph(graph, source_note=""):
     """Build the report: packages in BFS order, filtered ones, cycles."""
+    heading = "Reverse dependencies" if graph.reverse else "Dependency graph"
     title = node_title(graph, graph.root)
-    lines = [f"Dependency graph of {title}{source_note}:"]
+    lines = [f"{heading} of {title}{source_note}:"]
     lines.extend(format_node(graph, key) for key in graph.nodes)
+    if graph.reverse:
+        lines.append(format_dependents(graph))
     if graph.skipped:
         skipped = ", ".join(graph.skipped.values())
         lines.append(

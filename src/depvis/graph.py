@@ -36,23 +36,29 @@ class DependencyGraph:
     Packages are identified by the PEP 503 form of their names (keys).
     ``nodes`` maps keys to nodes in the order the search reached them,
     ``skipped`` maps the keys of filtered packages to their names.
+    ``reverse`` is set when the edges mean "is needed by" (Stage 4).
     """
 
     root: str
     filter_substring: str = ""
+    reverse: bool = False
     nodes: dict = field(default_factory=dict)
     skipped: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
 
 
-def build_graph(root_name, source, filter_substring=""):
+def build_graph(root_name, source, filter_substring="", reverse=False):
     """Collect every package reachable from ``root_name`` breadth-first.
 
     ``source`` describes packages: ``source.describe(name)`` returns a
-    ``PackageInfo`` or raises ``PackageNotFoundError``.
+    ``PackageInfo`` or raises ``PackageNotFoundError``. With a reversed
+    source the same search collects the reverse dependencies; ``reverse``
+    only marks the graph for the report.
     """
     root = canonical_name(root_name)
-    graph = DependencyGraph(root=root, filter_substring=filter_substring)
+    graph = DependencyGraph(
+        root=root, filter_substring=filter_substring, reverse=reverse
+    )
     graph.nodes[root] = Node(root_name)
     queue = deque([root])
     while queue:

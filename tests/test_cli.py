@@ -212,3 +212,36 @@ def test_module_runs_as_a_program(
     assert caught.value.code == EXIT_SUCCESS
     assert capsys.readouterr().out == REQUESTS_GRAPH
     assert fake_repository.requests
+
+
+def test_main_shows_reverse_dependencies(make_config, tmp_path, capsys):
+    """In reverse mode the packages that need the given one are shown."""
+    config, repository = make_test_mode_config(
+        make_config,
+        tmp_path,
+        "A: B C\nB: D\nC: D\nD:\n",
+        package_name="D",
+        reverse_dependencies="true",
+    )
+    assert run(["-c", config], capsys) == (
+        EXIT_SUCCESS,
+        f"Reverse dependencies of D (test repository {repository}):\n"
+        "  D <- B, C\n"
+        "  B <- A\n"
+        "  C <- A\n"
+        "  A\n"
+        "Packages that depend on D: B, C, A\n",
+        "",
+    )
+
+
+def test_main_rejects_reverse_mode_for_pypi(make_config, capsys):
+    """Reverse dependencies without test mode are a config error."""
+    path = make_config(reverse_dependencies="true")
+    assert run(["-c", path], capsys) == (
+        EXIT_CONFIG_ERROR,
+        "",
+        f"error: cannot use config file {path!r}:\n"
+        "  reverse_dependencies: only test_mode = true is supported "
+        "(PyPI has no list of dependents)\n",
+    )

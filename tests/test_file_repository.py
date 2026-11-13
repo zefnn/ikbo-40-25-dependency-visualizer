@@ -8,7 +8,13 @@ from depvis.errors import (
     RepositoryError,
     RepositoryFormatError,
 )
-from depvis.file_repository import load_file_repository, parse_lines
+from depvis.file_repository import (
+    FileRepository,
+    ReverseFileRepository,
+    invert,
+    load_file_repository,
+    parse_lines,
+)
 
 VALID_TEXT = "\n".join(
     [
@@ -101,3 +107,37 @@ def test_file_that_is_not_utf8_is_reported(tmp_path):
     path.write_bytes(b"A: B\n\xff\n")
     with pytest.raises(RepositoryError, match="is not UTF-8 text"):
         load_file_repository(str(path))
+
+
+def test_invert_lists_who_depends_on_each_package():
+    """Every package is mapped to the packages that depend on it."""
+    packages, problems = parse_lines(VALID_TEXT.splitlines())
+    assert not problems
+    assert invert(packages) == {
+        "A": (),
+        "B": ("A", "D"),
+        "C": ("A", "B"),
+        "D": ("B", "D"),
+    }
+
+
+def test_invert_keeps_packages_that_are_only_mentioned():
+    """A dependency without its own line still gets its dependents."""
+    assert invert({"A": ("B", "Z")}) == {"A": (), "B": ("A",), "Z": ("A",)}
+
+
+def test_reverse_repository_describes_dependents():
+    """The reversed repository answers who depends on a package."""
+    repository = ReverseFileRepository(
+        FileRepository("repo.txt", {"A": ("C",), "B": ("C",), "C": ()})
+    )
+    assert repository.describe("C") == PackageInfo("C", "", ("A", "B"))
+    assert repository.describe("A") == PackageInfo("A", "", ())
+
+
+def test_reverse_repository_rejects_unknown_package():
+    """A package that the file never mentions is not found."""
+    repository = ReverseFileRepository(FileRepository("repo.txt", {"A": ()}))
+    with pytest.raises(PackageNotFoundError) as caught:
+        repository.describe("Z")
+    assert str(caught.value) == "package 'Z' is not mentioned in repo.txt"

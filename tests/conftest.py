@@ -18,6 +18,7 @@ VALID_VALUES = {
     "output_image": "graph.png",
     "ascii_tree": "false",
     "filter_substring": "",
+    "reverse_dependencies": "false",
 }
 REQUESTS_REQUIRES_DIST = [
     "charset-normalizer<4,>=2",

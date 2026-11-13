@@ -33,6 +33,7 @@ class Settings:
     output_image: str
     ascii_tree: bool
     filter_substring: str
+    reverse_dependencies: bool
 
 
 PARAMETER_NAMES = tuple(item.name for item in fields(Settings))
@@ -41,6 +42,7 @@ MODE_FREE_CHECKS = (
     ("output_image", check_output_image),
     ("ascii_tree", parse_flag),
     ("filter_substring", check_filter),
+    ("reverse_dependencies", parse_flag),
 )
 MODE_DEPENDENT_CHECKS = (
     ("package_name", check_package_name),
@@ -144,6 +146,7 @@ def build_settings(raw_values, path):
                 problems, name, check, raw_values[name], test_mode
             )
     check_filter_against_package(values, problems)
+    check_reverse_mode(values, problems)
     if problems:
         raise ConfigError(path, describe_problems(problems))
     return Settings(**values)
@@ -157,6 +160,21 @@ def check_filter_against_package(values, problems):
         problems["filter_substring"] = (
             f"{substring!r} matches the analysed package {name!r} itself, "
             "so nothing would be left to analyse"
+        )
+
+
+def check_reverse_mode(values, problems):
+    """Report reverse dependencies asked for outside the test mode.
+
+    A test repository file holds the whole graph, so it can be read
+    backwards; PyPI has no list of the packages that depend on a package.
+    """
+    test_mode = values.get("test_mode")
+    wanted = values.get("reverse_dependencies")
+    if wanted and test_mode is not None and not test_mode:
+        problems["reverse_dependencies"] = (
+            "only test_mode = true is supported "
+            "(PyPI has no list of dependents)"
         )
 
 

@@ -6,7 +6,10 @@ import sys
 from depvis.config import load_settings
 from depvis.dependencies import RepositorySource
 from depvis.errors import ConfigError, RepositoryError, RepositoryFormatError
-from depvis.file_repository import load_file_repository
+from depvis.file_repository import (
+    ReverseFileRepository,
+    load_file_repository,
+)
 from depvis.graph import build_graph
 from depvis.report import format_graph
 
@@ -42,12 +45,18 @@ def report_problems(title, messages):
 
 
 def open_source(settings):
-    """Return where packages are described: test file or repository."""
-    if settings.test_mode:
-        return load_file_repository(settings.repository)
-    return RepositorySource(
-        settings.repository, settings.package_name, settings.version
-    )
+    """Return where packages are described: test file or repository.
+
+    For reverse dependencies the test file is read backwards.
+    """
+    if not settings.test_mode:
+        return RepositorySource(
+            settings.repository, settings.package_name, settings.version
+        )
+    repository = load_file_repository(settings.repository)
+    if settings.reverse_dependencies:
+        return ReverseFileRepository(repository)
+    return repository
 
 
 def collect_graph(settings):
@@ -57,6 +66,7 @@ def collect_graph(settings):
             settings.package_name,
             open_source(settings),
             settings.filter_substring,
+            settings.reverse_dependencies,
         )
     except RepositoryFormatError as error:
         title = f"invalid test repository {error.path!r}"
