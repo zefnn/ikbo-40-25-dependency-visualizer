@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 
 import pytest
 
+from depvis.image import PNG_SIGNATURE
 from depvis.requirements import canonical_name
 
 CONFIG_NAME = "config.ini"
@@ -100,6 +101,29 @@ class FakeRepository:
         return FakeAnswer(answer, headers)
 
 
+class FakeRenderer:
+    """Stands in for mermaid.ink and answers with a tiny PNG.
+
+    The exceptions in ``failures`` are raised first, one per request;
+    after them every request gets ``picture``.
+    """
+
+    def __init__(self):
+        """Start without failures and with a valid PNG signature."""
+        self.picture = PNG_SIGNATURE + b"fake picture"
+        self.failures = []
+        self.requests = []
+        self.timeouts = []
+
+    def open(self, request, timeout):
+        """Imitate ``urlopen`` for the image module."""
+        self.requests.append(request)
+        self.timeouts.append(timeout)
+        if self.failures:
+            raise self.failures.pop(0)
+        return FakeAnswer(self.picture, {})
+
+
 def refuse_network(request, timeout):
     """Stand in for ``urlopen`` and refuse to open anything."""
     raise AssertionError(
@@ -124,6 +148,14 @@ def work_in_tmp_path(tmp_path, monkeypatch):
 def block_network(monkeypatch):
     """Make any real network access from the tests fail loudly."""
     monkeypatch.setattr("depvis.repository.urlopen", refuse_network)
+
+
+@pytest.fixture(autouse=True)
+def fake_renderer(monkeypatch):
+    """Draw every picture with a FakeRenderer instead of mermaid.ink."""
+    renderer = FakeRenderer()
+    monkeypatch.setattr("depvis.image.urlopen", renderer.open)
+    return renderer
 
 
 @pytest.fixture

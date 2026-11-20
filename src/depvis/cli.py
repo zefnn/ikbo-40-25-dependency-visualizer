@@ -5,18 +5,27 @@ import sys
 
 from depvis.config import load_settings
 from depvis.dependencies import RepositorySource
-from depvis.errors import ConfigError, RepositoryError, RepositoryFormatError
+from depvis.errors import (
+    ConfigError,
+    ImageError,
+    RepositoryError,
+    RepositoryFormatError,
+)
 from depvis.file_repository import (
     ReverseFileRepository,
     load_file_repository,
 )
 from depvis.graph import build_graph
+from depvis.image import render_png, save_png
+from depvis.mermaid import to_mermaid
 from depvis.report import format_graph
+from depvis.tree import ascii_tree
 
 DEFAULT_CONFIG_PATH = "config.ini"
 EXIT_SUCCESS = 0
 EXIT_CONFIG_ERROR = 1
 EXIT_REPOSITORY_ERROR = 3
+EXIT_IMAGE_ERROR = 4
 
 
 def parse_arguments(argv=None):
@@ -83,6 +92,25 @@ def source_note(settings):
     return ""
 
 
+def show_pictures(graph, settings):
+    """Print the Mermaid text and ASCII tree, save the PNG image (Stage 5).
+
+    Returns the exit code: the image needs the mermaid.ink service, so
+    without network only the text pictures are shown.
+    """
+    mermaid_text = to_mermaid(graph)
+    print(f"\nMermaid diagram:\n{mermaid_text}")
+    if settings.ascii_tree:
+        print(f"\nASCII tree:\n{ascii_tree(graph)}")
+    try:
+        save_png(settings.output_image, render_png(mermaid_text))
+    except ImageError as error:
+        print(f"error: no graph image: {error}", file=sys.stderr)
+        return EXIT_IMAGE_ERROR
+    print(f"\nGraph image saved to {settings.output_image}")
+    return EXIT_SUCCESS
+
+
 def main(argv=None):
     """Run the application and return the process exit code."""
     arguments = parse_arguments(argv)
@@ -98,4 +126,4 @@ def main(argv=None):
     for warning in graph.warnings:
         print(f"warning: {warning}", file=sys.stderr)
     print(format_graph(graph, source_note(settings)))
-    return EXIT_SUCCESS
+    return show_pictures(graph, settings)

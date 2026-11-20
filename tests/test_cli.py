@@ -2,25 +2,53 @@
 
 import runpy
 import sys
+from urllib.error import URLError
 
 import pytest
 
 from depvis.cli import (
     DEFAULT_CONFIG_PATH,
     EXIT_CONFIG_ERROR,
+    EXIT_IMAGE_ERROR,
     EXIT_REPOSITORY_ERROR,
     EXIT_SUCCESS,
     main,
     parse_arguments,
 )
+from depvis.image import RENDER_ATTEMPTS
 
-REQUESTS_GRAPH = (
+REQUESTS_REPORT = (
     "Dependency graph of requests 2.32.3:\n"
     "  requests 2.32.3 -> charset-normalizer, idna, urllib3, certifi\n"
     "  charset-normalizer 3.4.0\n"
     "  idna 3.10\n"
     "  urllib3 2.2.3\n"
     "  certifi 2024.8.30\n"
+)
+REQUESTS_MERMAID = (
+    "flowchart TD\n"
+    '    n0["requests 2.32.3"]\n'
+    '    n1["charset-normalizer 3.4.0"]\n'
+    '    n2["idna 3.10"]\n'
+    '    n3["urllib3 2.2.3"]\n'
+    '    n4["certifi 2024.8.30"]\n'
+    "    n0 --> n1\n"
+    "    n0 --> n2\n"
+    "    n0 --> n3\n"
+    "    n0 --> n4\n"
+)
+REQUESTS_TREE = (
+    "requests 2.32.3\n"
+    "+-- charset-normalizer 3.4.0\n"
+    "+-- idna 3.10\n"
+    "+-- urllib3 2.2.3\n"
+    "\\-- certifi 2024.8.30\n"
+)
+MERMAID_HEADING = "\nMermaid diagram:\n"
+TREE_HEADING = "\nASCII tree:\n"
+IMAGE_LINE = "\nGraph image saved to graph.png\n"
+REQUESTS_OUTPUT = (
+    REQUESTS_REPORT + MERMAID_HEADING + REQUESTS_MERMAID + IMAGE_LINE
 )
 CYCLE_REPOSITORY = "A: B X\nB: C\nC: A D\nD:\nX: D\n"
 
@@ -30,6 +58,19 @@ def run(argv, capsys):
     exit_code = main(argv)
     captured = capsys.readouterr()
     return exit_code, captured.out, captured.err
+
+
+def run_report(argv, capsys):
+    """Run main() and return its exit code, the graph report and stderr.
+
+    The report is the text before the Mermaid diagram; the rest of the
+    output has to end with the line about the saved image.
+    """
+    exit_code, out, err = run(argv, capsys)
+    report, separator, pictures = out.partition(MERMAID_HEADING)
+    assert separator
+    assert pictures.endswith(IMAGE_LINE)
+    return exit_code, report, err
 
 
 def make_test_mode_config(make_config, tmp_path, text, **changes):
@@ -66,16 +107,49 @@ def test_unknown_argument_stops_the_program(capsys):
     assert "unrecognized arguments" in capsys.readouterr().err
 
 
-def test_main_prints_the_dependency_graph(
-    fake_repository, make_config, capsys
+def test_main_prints_graph_mermaid_and_saves_image(
+    fake_repository, fake_renderer, make_config, tmp_path, capsys
 ):
-    """The graph of the configured package goes to stdout."""
+    """The report and the Mermaid text are printed, the PNG is saved."""
     assert run(["-c", make_config()], capsys) == (
         EXIT_SUCCESS,
-        REQUESTS_GRAPH,
+        REQUESTS_OUTPUT,
         "",
     )
     assert fake_repository.requests
+    picture = (tmp_path / "graph.png").read_bytes()
+    assert picture == fake_renderer.picture
+
+
+def test_main_prints_ascii_tree_when_asked(
+    fake_repository, make_config, capsys
+):
+    """With ascii_tree = true the dependencies are drawn as a tree."""
+    assert run(["-c", make_config(ascii_tree="true")], capsys) == (
+        EXIT_SUCCESS,
+        REQUESTS_REPORT
+        + MERMAID_HEADING
+        + REQUESTS_MERMAID
+        + TREE_HEADING
+        + REQUESTS_TREE
+        + IMAGE_LINE,
+        "",
+    )
+    assert fake_repository.requests
+
+
+def test_main_reports_image_errors(
+    fake_repository, fake_renderer, make_config, tmp_path, capsys
+):
+    """Without mermaid.ink the text is shown and the error is reported."""
+    fake_renderer.failures = [URLError("offline")] * RENDER_ATTEMPTS
+    assert run(["-c", make_config()], capsys) == (
+        EXIT_IMAGE_ERROR,
+        REQUESTS_REPORT + MERMAID_HEADING + REQUESTS_MERMAID,
+        "error: no graph image: cannot reach mermaid.ink: offline\n",
+    )
+    assert fake_repository.requests
+    assert not (tmp_path / "graph.png").exists()
 
 
 def test_main_reads_config_ini_by_default(
@@ -83,7 +157,7 @@ def test_main_reads_config_ini_by_default(
 ):
     """Without -c the file config.ini of the working directory is used."""
     make_config()
-    assert run([], capsys) == (EXIT_SUCCESS, REQUESTS_GRAPH, "")
+    assert run([], capsys) == (EXIT_SUCCESS, REQUESTS_OUTPUT, "")
     assert fake_repository.requests
 
 
@@ -94,7 +168,7 @@ def test_main_shows_filter_and_cycles_in_test_mode(
     config, repository = make_test_mode_config(
         make_config, tmp_path, CYCLE_REPOSITORY, filter_substring="x"
     )
-    assert run(["-c", config], capsys) == (
+    assert run_report(["-c", config], capsys) == (
         EXIT_SUCCESS,
         f"Dependency graph of A (test repository {repository}):\n"
         "  A -> B\n"
@@ -115,7 +189,7 @@ def test_main_warns_about_missing_test_packages(
     config, repository = make_test_mode_config(
         make_config, tmp_path, "A: B C\nB:\n"
     )
-    assert run(["-c", config], capsys) == (
+    assert run_report(["-c", config], capsys) == (
         EXIT_SUCCESS,
         f"Dependency graph of A (test repository {repository}):\n"
         "  A -> B, C\n"
@@ -170,7 +244,7 @@ def test_main_warns_about_unparsable_dependencies(
     """Broken dependency strings are skipped with a warning."""
     fake_repository.add_release("odd", "1.0", ["idna", "!!!"])
     path = make_config(package_name="odd", version="1.0")
-    assert run(["-c", path], capsys) == (
+    assert run_report(["-c", path], capsys) == (
         EXIT_SUCCESS,
         "Dependency graph of odd 1.0:\n"
         "  odd 1.0 -> idna\n"
@@ -210,7 +284,7 @@ def test_module_runs_as_a_program(
     with pytest.raises(SystemExit) as caught:
         runpy.run_module("depvis", run_name="__main__")
     assert caught.value.code == EXIT_SUCCESS
-    assert capsys.readouterr().out == REQUESTS_GRAPH
+    assert capsys.readouterr().out == REQUESTS_OUTPUT
     assert fake_repository.requests
 
 
@@ -223,7 +297,7 @@ def test_main_shows_reverse_dependencies(make_config, tmp_path, capsys):
         package_name="D",
         reverse_dependencies="true",
     )
-    assert run(["-c", config], capsys) == (
+    assert run_report(["-c", config], capsys) == (
         EXIT_SUCCESS,
         f"Reverse dependencies of D (test repository {repository}):\n"
         "  D <- B, C\n"

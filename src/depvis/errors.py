@@ -21,6 +21,10 @@ class NetworkError(RepositoryError):
     """Raised when the repository could not be reached at all."""
 
 
+class ImageError(Exception):
+    """Raised when the PNG image of the graph cannot be made or saved."""
+
+
 class RepositoryFormatError(RepositoryError):
     """Raised when a test repository file breaks the format rules.
 
